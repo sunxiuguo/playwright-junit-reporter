@@ -45,14 +45,16 @@ class XrayJUnitReporter implements Reporter {
   private textContentAnnotations: string[] | undefined;
   private embedAttachmentsAsProperty: string | undefined;
   private ignoreTestCasesWithoutTestKey: boolean = false;
+  private reportOnlyAnnotatedTests: boolean = false;
 
 
-  constructor(options: { outputFile?: string, stripANSIControlSequences?: boolean, embedAnnotationsAsProperties?: boolean, embedTestrunAnnotationsAsItemProperties?: boolean, ignoreTestCasesWithoutTestKey?: boolean, textContentAnnotations?: string[], embedAttachmentsAsProperty?: string } = {}) {
+  constructor(options: { outputFile?: string, stripANSIControlSequences?: boolean, embedAnnotationsAsProperties?: boolean, embedTestrunAnnotationsAsItemProperties?: boolean, ignoreTestCasesWithoutTestKey?: boolean, reportOnlyAnnotatedTests?: boolean, textContentAnnotations?: string[], embedAttachmentsAsProperty?: string } = {}) {
     this.outputFile = options.outputFile || reportOutputNameFromEnv();
     this.stripANSIControlSequences = options.stripANSIControlSequences || false;
     this.embedAnnotationsAsProperties = options.embedAnnotationsAsProperties || false;
     this.embedTestrunAnnotationsAsItemProperties = options.embedTestrunAnnotationsAsItemProperties || false;
     this.ignoreTestCasesWithoutTestKey = options.ignoreTestCasesWithoutTestKey || false;
+    this.reportOnlyAnnotatedTests = options.reportOnlyAnnotatedTests || false;
     this.textContentAnnotations = options.textContentAnnotations || [];
     this.embedAttachmentsAsProperty = options.embedAttachmentsAsProperty;
   }
@@ -113,6 +115,9 @@ class XrayJUnitReporter implements Reporter {
 
     suite.allTests().forEach(test => {
       if (this.ignoreTestCasesWithoutTestKey && !hasAnnotationTestKey(test))
+        return;
+
+      if (this.reportOnlyAnnotatedTests && !hasXrayAnnotation(test))
         return;
 
       ++tests;
@@ -341,6 +346,12 @@ function hasAnnotationTestKey(test: TestCase): boolean {
   }
 
   return false;
+}
+
+// Match the metadata represented by @XrayTest or @Requirement in xray-junit-extensions.
+function hasXrayAnnotation(test: TestCase): boolean {
+  return test.annotations.some(annotation =>
+    ['test_key', 'test_id', 'test_summary', 'test_description', 'requirements'].includes(annotation.type));
 }
 
 // See https://en.wikipedia.org/wiki/Valid_characters_in_XML

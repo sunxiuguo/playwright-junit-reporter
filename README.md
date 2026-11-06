@@ -70,6 +70,10 @@ const xrayOptions = {
   // but still want to import the report into Xray without those tests.
   ignoreTestCasesWithoutTestKey: false,
 
+  // Only report tests with Xray test metadata or requirements; default is false.
+  // The older ignoreTestCasesWithoutTestKey option remains stricter if both are enabled.
+  reportOnlyAnnotatedTests: false,
+
   // By default, annotation is reported as <property name='' value=''>.
   // These annotations are reported as <property name=''>value</property>. This only applies if using the `embedAnnotationsAsProperties` setting; it's not applicable to the test run related annotations that are handled by the `embedAnnotationsAsItemProperties` setting.
   textContentAnnotations: ['test_description', 'testrun_comment'],
@@ -86,6 +90,19 @@ export default defineConfig({
   reporter: [['@xray-app/playwright-junit-reporter', xrayOptions]]
 });
 ```
+
+`reportOnlyAnnotatedTests` includes tests with at least one annotation of type
+`test_key`, `test_id`, `test_summary`, `test_description`, or `requirements`.
+These correspond to the `@XrayTest` and `@Requirement` metadata accepted by
+`report_only_annotated_tests` in xray-junit-extensions. Annotation presence is checked,
+not the description value. Generic annotations, tags, Test Run custom fields (`tr:*`),
+and attachments alone do not select a test.
+
+This option filters the report, not test execution. Excluded tests still run and
+can cause Playwright to exit with a failure. Report counts reflect the included
+results. Both filtering options default to `false`; enabling both still requires
+`test_key`. Enable `embedAnnotationsAsProperties` separately to include the metadata
+in the XML for Xray import.
 
 In the previous configuration sample, all annotations will be added as `<property>` elements on the JUnit XML report. The annotation type is mapped to the `name` attribute of the `<property>`, and the annotation description will be added as a `value` attribute. In this case, the exception will be the annotation type `testrun_evidence` whose description will be added as inner content on the respective `<property>`.
 Annotations can be used to, for example, link a Playwright test with an existing Test in Xray or to link a test with an existing story/requirement in Jira (i.e., "cover" it).

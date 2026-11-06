@@ -728,3 +728,81 @@ test.describe('remove testcases without test_key property', () => {
     expect(result.exitCode).toBe(0);
   });
 });
+
+test.describe('report only Xray annotated tests', () => {
+  for (const options of [
+    { reportOnlyAnnotatedTests: true },
+    { reportOnlyAnnotatedTests: false },
+    {},
+    { reportOnlyAnnotatedTests: true, ignoreTestCasesWithoutTestKey: true },
+  ]) {
+    test(`filters report without changing execution: ${JSON.stringify(options)}`, async ({ runInlineTest }, testInfo) => {
+      const annotationTypes = ['test_key', 'test_id', 'test_summary', 'test_description', 'requirements', 'tags', 'tr:custom', 'custom'];
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          module.exports = { reporter: [['${THIS_REPORTER}', {
+            ...${JSON.stringify(options)}, embedAnnotationsAsProperties: true, outputFile: 'report.xml'
+          }]] };
+        `,
+        'a.test.js': `
+          import { test, expect } from '@playwright/test';
+          for (const type of ${JSON.stringify(annotationTypes)}) {
+            test(type, async ({}, testInfo) => {
+              testInfo.annotations.push({ type, description: 'DEMO-1' });
+            });
+          }
+          test('unannotated failure', async () => { expect(1).toBe(2); });
+          test('skipped', async () => { test.skip(); });
+        `,
+      }, { reporter: '' });
+      const xml = parseXML(fs.readFileSync(testInfo.outputPath('report.xml'), 'utf8'));
+      const root = xml.testsuites;
+      const suite = root.testsuite[0];
+      const expectedNames = options.ignoreTestCasesWithoutTestKey ? ['test_key'] :
+        options.reportOnlyAnnotatedTests ? annotationTypes.slice(0, 5) : [...annotationTypes, 'unannotated failure', 'skipped'];
+      expect(suite.testcase.map(entry => entry.$.name)).toEqual(expectedNames);
+      expect(root.$.tests).toBe(String(expectedNames.length));
+      expect(suite.$.tests).toBe(String(expectedNames.length));
+      expect(root.$.failures).toBe(options.reportOnlyAnnotatedTests ? '0' : '1');
+      expect(suite.$.failures).toBe(root.$.failures);
+      expect(root.$.skipped).toBe(options.reportOnlyAnnotatedTests ? '0' : '1');
+      expect(suite.$.skipped).toBe(root.$.skipped);
+      for (const entry of suite.testcase.slice(0, options.ignoreTestCasesWithoutTestKey ? 1 : 5))
+        expect(entry.properties[0].property[0].$).toEqual({ name: entry.$.name, value: 'DEMO-1' });
+      // Filtering the XML never removes the failing test from execution.
+      expect(result.exitCode).toBe(1);
+      expect(result.report.stats.unexpected).toBe(1);
+      expect(result.report.stats.expected).toBe(8);
+      expect(result.report.stats.skipped).toBe(1);
+    });
+  }
+
+  test('keeps annotated failures and skips, with correct suite totals', async ({ runInlineTest }, testInfo) => {
+    const result = await runInlineTest({
+      'playwright.config.ts': `
+        module.exports = { reporter: [['${THIS_REPORTER}', { reportOnlyAnnotatedTests: true, outputFile: 'report.xml' }]] };
+      `,
+      'a.test.js': `
+        import { test, expect } from '@playwright/test';
+        test('requirement fails', async ({}, info) => {
+          info.annotations.push({ type: 'requirements', description: 'DEMO-2' });
+          expect(1).toBe(2);
+        });
+        test('annotated skip', { annotation: { type: 'test_id', description: '123' } }, async () => { test.skip(); });
+      `,
+      'b.test.js': `
+        import { test } from '@playwright/test';
+        test('ordinary', async () => {});
+      `,
+    }, { reporter: '' });
+    const root = parseXML(fs.readFileSync(testInfo.outputPath('report.xml'), 'utf8')).testsuites;
+    expect(root.$.tests).toBe('2');
+    expect(root.$.failures).toBe('1');
+    expect(root.$.skipped).toBe('1');
+    expect(root.testsuite[0].testcase[0].failure).toBeTruthy();
+    expect(root.testsuite[0].testcase[1].skipped).toBeTruthy();
+    expect(root.testsuite[1].$.tests).toBe('0');
+    expect(root.testsuite[1].testcase).toBeFalsy();
+    expect(result.exitCode).toBe(1);
+  });
+});
